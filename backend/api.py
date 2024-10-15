@@ -1,13 +1,15 @@
 # api.py
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from langserve import add_routes
 from summarizeurl import summarize_url_runnable
 from chaturl import create_chain
 from summarize_youtube import summarize_youtube_video
 from chat_youtube import chat_with_youtube
+from transcript_processing import summarize_meeting_transcript
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
+from typing import Optional
 import logging
 import requests
 
@@ -28,6 +30,14 @@ app.add_middleware(
   allow_headers=["*"],
 )
 
+class TranscriptSummarizeRequest(BaseModel):
+    file: UploadFile
+
+class TranscriptChatRequest(BaseModel):
+    file: Optional[UploadFile] = None
+    question: str
+    session_id: str
+
 class URLSummarizeRequest(BaseModel):
   url: HttpUrl
 
@@ -43,6 +53,24 @@ class YouTubeChatRequest(BaseModel):
   url: HttpUrl
   question: str
   session_id: str
+
+@app.post("/summarize-transcript")
+async def summarize_transcript(file: UploadFile = File(...)):
+    try:
+        summary = await summarize_meeting_transcript(file)
+        return {"output": summary}
+    except Exception as e:
+        logger.error(f"Error in /summarize-transcript endpoint: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/chat-transcript")
+async def chat_transcript(request: TranscriptChatRequest):
+    try:
+        response = await chat_with_meeting_transcript(request.file, request.question, request.session_id)
+        return {"output": response}
+    except Exception as e:
+        logger.error(f"Error in /chat-transcript endpoint: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/summarize")
 async def summarize(request: URLSummarizeRequest):
