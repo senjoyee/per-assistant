@@ -6,12 +6,14 @@ from summarizeurl import summarize_url_runnable
 from chaturl import create_chain
 from summarize_youtube import summarize_youtube_video
 from chat_youtube import chat_with_youtube
-from transcript_processing import summarize_meeting_transcript
+from transcript_processing import summarize_meeting_transcript_runnable
+from chat_transcript import chat_with_meeting_transcript_runnable
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl
 from typing import Optional
 import logging
 import requests
+from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -55,22 +57,31 @@ class YouTubeChatRequest(BaseModel):
   session_id: str
 
 @app.post("/summarize-transcript")
-async def summarize_transcript(file: UploadFile = File(...)):
-    try:
-        summary = await summarize_meeting_transcript(file)
-        return {"output": summary}
-    except Exception as e:
-        logger.error(f"Error in /summarize-transcript endpoint: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-
+async def summarize_transcript(file: UploadFile):
+  try:
+      content = await file.read()
+      text = content.decode('utf-8')
+      summary = await summarize_meeting_transcript_runnable.ainvoke(text)
+      if summary == "Failed to generate summary. Please try again or contact support.":
+          return JSONResponse(content={"error": summary}, status_code=500)
+      return JSONResponse(content={"summary": summary}, status_code=200)
+  except Exception as e:
+      logger.error(f"Error in /summarize-transcript endpoint: {str(e)}", exc_info=True)
+      return JSONResponse(content={"error": str(e)}, status_code=500)
+  
 @app.post("/chat-transcript")
 async def chat_transcript(request: TranscriptChatRequest):
-    try:
-        response = await chat_with_meeting_transcript(request.file, request.question, request.session_id)
-        return {"output": response}
-    except Exception as e:
-        logger.error(f"Error in /chat-transcript endpoint: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+  try:
+      content = await request.file.read()
+      text = content.decode('utf-8')
+      response = await chat_with_meeting_transcript_runnable.ainvoke(
+          {"input": request.question, "text": text},
+          config={"configurable": {"session_id": request.session_id}}
+      )
+      return {"output": response}
+  except Exception as e:
+      logger.error(f"Error in /chat-transcript endpoint: {e}")
+      raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/summarize")
 async def summarize(request: URLSummarizeRequest):
