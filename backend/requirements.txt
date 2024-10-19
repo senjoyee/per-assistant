@@ -21,3 +21,5 @@ pytube
 PyPDF2
 python-docx
 python-multipart
+yt-dlp
+openai

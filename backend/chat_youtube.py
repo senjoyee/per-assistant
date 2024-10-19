@@ -10,20 +10,33 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from dotenv import load_dotenv
 from pydantic import HttpUrl
-from langchain_community.document_loaders import YoutubeLoader
+import yt_dlp
+from youtube_transcript_api import YouTubeTranscriptApi
 
 load_dotenv()
 
-llm = ChatOpenAI(model="gpt-4-1106-preview", temperature=0)
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 def load_and_process_youtube(url: HttpUrl):
     print(f"Loading content from YouTube URL: {url}")
     try:
-        loader = YoutubeLoader.from_youtube_url(url, add_video_info=True)
-        documents = loader.load()
+        video_id = url.split("v=")[1]
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        full_transcript = " ".join([entry['text'] for entry in transcript])
 
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        splits = text_splitter.split_documents(documents)
+        # Get video info
+        ydl_opts = {'skip_download': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            title = info.get('title', 'Unknown Title')
+            description = info.get('description', 'No description available')
+
+        # Combine title, description, and transcript
+        full_content = f"Title: {title}\n\nDescription: {description}\n\nTranscript: {full_transcript}"
+        document = Document(page_content=full_content, metadata={"source": url})
+
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=500)
+        splits = text_splitter.split_documents([document])
 
         vectorstore = Chroma.from_documents(documents=splits, embedding=OpenAIEmbeddings())
         return vectorstore.as_retriever()
